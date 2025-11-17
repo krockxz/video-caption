@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+.next/cache/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env*
+!.env.example
+
+# OS / Editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+.cursor/
+.claude/
+.mcp.json
+
+# Coverage
+coverage/
+
+# Build / deploy artifacts
+.turbo/
+.vercel/
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Prisma
+prisma/dev.db
+prisma/*.db
+prisma/*.db-journal
+
+# Uploads / generated assets
+public/uploads/
+CLAUDE.md
