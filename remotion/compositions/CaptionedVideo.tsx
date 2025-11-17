@@ -14,7 +14,8 @@ import {
   AbsoluteFill,
   spring,
   Easing,
-  interpolate
+  interpolate,
+  Video
 } from 'remotion'
 import type { AnyZodObject } from 'zod'
 import { CaptionOverlay } from '../components/CaptionOverlay'
@@ -66,22 +67,14 @@ const VideoBackground: React.FC<{ videoPath: string; style?: React.CSSProperties
         ...style
       }}
     >
-      {/* Video will be rendered by Remotion's <Video> component in the actual usage */}
-      <div
+      <Video
+        src={videoPath}
         style={{
           width: '100%',
           height: '100%',
-          backgroundColor: '#1a1a1a',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#666',
-          fontSize: '24px',
-          fontFamily: 'Arial, sans-serif'
+          objectFit: 'contain'
         }}
-      >
-        Video: {videoPath.split('/').pop()}
-      </div>
+      />
     </AbsoluteFill>
   )
 }

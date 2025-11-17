@@ -14,7 +14,7 @@ export interface VideoResponse {
 export interface VideosListResponse {
   success: boolean
   data: {
-    videos: VideoResponse[]
+    items: VideoResponse[]
     pagination: {
       page: number
       limit: number
@@ -70,11 +70,10 @@ export async function GET(request: NextRequest) {
     const totalPages = Math.ceil(total / limit)
     const hasMore = page < totalPages
 
-    // Format response
     const response: VideosListResponse = {
       success: true,
       data: {
-        videos: videos.map(video => ({
+        items: videos.map(video => ({
           id: video.id,
           title: video.title,
           fileName: video.fileName,
@@ -96,46 +95,13 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('Error fetching videos:', error)
-
     return NextResponse.json(
       {
         success: false,
-        data: {
-          videos: [],
-          pagination: {
-            page: 1,
-            limit: 10,
-            total: 0,
-            totalPages: 0,
-            hasMore: false
-          }
-        },
         error: 'Failed to fetch videos',
         details: process.env.NODE_ENV === 'development' ? error : undefined
       },
       { status: 500 }
     )
   }
-}
-
-// Handle unsupported HTTP methods
-export async function POST() {
-  return NextResponse.json(
-    { success: false, error: 'Method not allowed. Use GET to fetch videos.' },
-    { status: 405 }
-  )
-}
-
-export async function PUT() {
-  return NextResponse.json(
-    { success: false, error: 'Method not allowed. Use GET to fetch videos.' },
-    { status: 405 }
-  )
-}
-
-export async function DELETE() {
-  return NextResponse.json(
-    { success: false, error: 'Method not allowed. Use GET to fetch videos.' },
-    { status: 405 }
-  )
 }

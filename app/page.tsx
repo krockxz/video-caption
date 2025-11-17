@@ -70,9 +70,13 @@ function DashboardContent() {
   // Handle video upload success
   const handleUploadComplete = useCallback((videoId: string) => {
     showNotification('success', 'Video uploaded successfully!');
-    // Refresh the video list
-    refetch();
-  }, [showNotification, refetch]);
+    // Refresh the video list and select the new video
+    refetch().then(() => {
+      // Select the newly uploaded video
+      setSelectedVideoId(videoId);
+      showNotification('info', 'Video selected for caption generation');
+    });
+  }, [showNotification, refetch, setSelectedVideoId]);
 
   // Refresh video list
   const handleRefresh = useCallback(async () => {
@@ -202,13 +206,11 @@ function DashboardContent() {
                 {/* Caption Manager Section */}
                 <CaptionManagerSection
                   videoId={selectedVideoId}
-                  captions={[]} // Will be populated by the component's own hook
                 />
 
                 {/* Render Preview Section */}
                 <RenderPreviewSection
                   videoId={selectedVideoId}
-                  captions={[]} // Will be populated by the component's own hook
                 />
               </>
             ) : (

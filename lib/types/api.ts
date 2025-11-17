@@ -148,9 +148,7 @@ export interface Caption {
   language: string;
   /** Style to use for displaying this caption */
   style: CaptionStyle;
-  /** ISO timestamp when caption was created */
-  createdAt: string;
-  /** Confidence score from speech recognition (0-1) */
+    /** Confidence score from speech recognition (0-1) */
   confidence?: number;
   /** Whether caption has unsaved changes */
   hasChanges?: boolean;

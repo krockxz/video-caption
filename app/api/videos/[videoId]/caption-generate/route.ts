@@ -91,8 +91,15 @@ export async function POST(
     })
 
     try {
-      // Get video file path
-      const videoPath = join(process.cwd(), UPLOAD_DIR, videoId, video.fileName)
+      // Get video file path - ensure it includes the public directory
+      let relativePath = video.filePath;
+      if (relativePath.startsWith('/')) {
+        relativePath = relativePath.slice(1);
+      }
+      if (!relativePath.startsWith('public/')) {
+        relativePath = `public/${relativePath}`;
+      }
+      const videoPath = join(process.cwd(), relativePath);
 
       // Check if video file exists
       if (!(await pathExists(videoPath))) {
@@ -117,30 +124,34 @@ export async function POST(
         type: 'video/mp4'
       })
 
-      console.log(`Sending video to OpenAI Whisper API...`)
+      console.log(`Starting real caption generation with OpenAI Whisper API...`)
 
-      // Send to OpenAI Whisper API with timestamp support
+      // Create transcription with OpenAI Whisper API
       const transcription = await openai.audio.transcriptions.create({
         file: videoFileObj,
-        model: 'whisper-1',
-        language: 'en', // Let Whisper auto-detect the language
-        response_format: 'verbose_json',
-        timestamp_granularities: ['word', 'segment'],
-        temperature: 0.0, // Lower temperature for more consistent results
+        model: "whisper-1",
+        language: "en", // Will auto-detect but prefer English
+        response_format: "verbose_json",
+        timestamp_granularities: ["word", "segment"],
+        temperature: 0.0 // Lower temperature for more consistent results
       })
 
-      console.log(`Received transcription from OpenAI:`, transcription)
+      console.log(`OpenAI Whisper transcription completed:`, transcription)
 
       // Parse the verbose response to extract segments with timestamps
       const captions: CaptionData[] = []
 
       if (transcription.segments && Array.isArray(transcription.segments)) {
         transcription.segments.forEach((segment) => {
-          captions.push({
-            startTime: Math.round(segment.start * 100) / 100, // Round to 2 decimal places
-            endTime: Math.round(segment.end * 100) / 100,
-            text: segment.text.trim()
-          })
+          const text = segment.text.trim()
+          // Skip empty segments or silence markers
+          if (text && text !== '[silence]' && text !== '[music]') {
+            captions.push({
+              startTime: Math.round(segment.start * 100) / 100, // Round to 2 decimal places
+              endTime: Math.round(segment.end * 100) / 100,
+              text
+            })
+          }
         })
       } else {
         // Fallback: create a single segment with the full text

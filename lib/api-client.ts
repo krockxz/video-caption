@@ -13,7 +13,6 @@ import type {
   CaptionGenerateOptions,
   Render,
   RenderOptions,
-  HealthResponse,
   ErrorResponse,
   PaginatedResponse,
 } from './types/api';
@@ -26,15 +25,10 @@ import type {
  * API configuration
  */
 const API_CONFIG = {
-  /** Base URL for API requests */
-  BASE_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000',
-  /** Default timeout for requests (30 seconds) */
+  BASE_URL: process.env.NEXT_PUBLIC_API_URL || '',
   DEFAULT_TIMEOUT: 30000,
-  /** Maximum number of retry attempts */
   MAX_RETRIES: 3,
-  /** Delay between retries (exponential backoff) */
   RETRY_DELAY: 1000,
-  /** Request headers */
   HEADERS: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
@@ -57,59 +51,32 @@ interface RequestOptions {
 // UTILITY FUNCTIONS
 // ===================================
 
-/**
- * Handle API errors and create error response
- */
-function handleApiError(error: any, url: string): ErrorResponse {
+function handleApiError(error: unknown, url: string): ErrorResponse {
   console.error(`API Error for ${url}:`, error);
 
-  if (error.name === 'AbortError') {
+  if (error instanceof Error) {
+    if (error.name === 'AbortError') {
+      return {
+        error: 'Request timeout',
+        status: 408,
+        message: 'The request timed out',
+        code: 'TIMEOUT',
+      };
+    }
     return {
-      error: 'Request timeout',
-      status: 408,
-      message: 'The request timed out',
-      code: 'TIMEOUT',
+      error: error.message,
+      status: 500,
+      message: 'An unexpected error occurred',
+      code: 'UNKNOWN_ERROR',
     };
   }
 
-  if (error.response) {
-    // Server responded with error status
-    return {
-      error: error.response.data?.error || error.response.statusText || 'Unknown error',
-      status: error.response.status,
-      message: error.response.data?.message || 'Request failed',
-      details: error.response.data?.details,
-    };
-  }
-
-  if (error.request) {
-    // Network error
-    return {
-      error: 'Network error',
-      status: 0,
-      message: 'Unable to connect to the server',
-      code: 'NETWORK_ERROR',
-    };
-  }
-
-  // Other error
   return {
-    error: error.message || 'Unknown error',
+    error: 'Unknown error',
     status: 500,
     message: 'An unexpected error occurred',
     code: 'UNKNOWN_ERROR',
   };
-}
-
-/**
- * Create timeout promise
- */
-function createTimeout(timeout: number): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => {
-      reject(new Error('Request timeout'));
-    }, timeout);
-  });
 }
 
 /**
@@ -158,7 +125,7 @@ async function makeRequest<T>(
       completed = true;
       clearTimeout(timeoutId);
 
-      const data = await response.json().catch(() => ({}));
+      const data = await response.json();
 
       if (!response.ok) {
         throw new Error(data.error || `HTTP ${response.status}`);
@@ -166,7 +133,7 @@ async function makeRequest<T>(
 
       return {
         success: true,
-        data: data.data || data,
+        data: data.data,
         status: response.status,
         message: data.message,
         requestId: data.requestId,
@@ -186,8 +153,8 @@ async function makeRequest<T>(
         break;
       }
 
-      // Don't retry on client errors (4xx)
-      if ((error as any).response?.status >= 400 && (error as any).response?.status < 500) {
+      // Don't retry on client errors (4xx) - fetch doesn't have response property
+      if (error instanceof Error && error.message.includes('HTTP 4')) {
         break;
       }
 
@@ -234,29 +201,20 @@ async function uploadFileWithProgress(
     }
 
     xhr.addEventListener('load', () => {
-      try {
-        const response = JSON.parse(xhr.responseText);
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve({
-            success: true,
-            data: response.data || response,
-            status: xhr.status,
-            message: response.message,
-          });
-        } else {
-          resolve({
-            success: false,
-            error: response.error || 'Upload failed',
-            status: xhr.status,
-            message: response.message || 'Upload request failed',
-          });
-        }
-      } catch (error) {
+      const response = JSON.parse(xhr.responseText);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve({
+          success: true,
+          data: response.data,
+          status: xhr.status,
+          message: response.message,
+        });
+      } else {
         resolve({
           success: false,
-          error: 'Invalid response from server',
+          error: response.error || 'Upload failed',
           status: xhr.status,
-          message: 'Failed to parse server response',
+          message: response.message || 'Upload request failed',
         });
       }
     });
@@ -279,7 +237,7 @@ async function uploadFileWithProgress(
       });
     });
 
-    xhr.timeout = options.timeout || API_CONFIG.DEFAULT_TIMEOUT;
+    xhr.timeout = options.timeout ?? API_CONFIG.DEFAULT_TIMEOUT;
 
     xhr.open('POST', `${API_CONFIG.BASE_URL}${url}`);
 
@@ -424,12 +382,12 @@ export async function saveCaptions(
  */
 export async function generateCaptions(
   videoId: string,
-  options?: CaptionGenerateOptions,
+  options: CaptionGenerateOptions = {},
   requestOptions: RequestOptions = {}
 ): Promise<ApiResponse<{ videoId: string; captions: Caption[]; generatedAt: string }>> {
   return makeRequest(`/api/videos/${videoId}/captions/generate`, {
     method: 'POST',
-    body: options || {},
+    body: options,
     ...requestOptions,
   });
 }
@@ -440,14 +398,14 @@ export async function generateCaptions(
 export async function requestRender(
   videoId: string,
   captionStyle: string,
-  renderOptions?: RenderOptions,
+  renderOptions: Partial<RenderOptions> = {},
   requestOptions: RequestOptions = {}
 ): Promise<ApiResponse<{ renderId: string; videoId: string; captionStyle: string; status: string; createdAt: string }>> {
   return makeRequest(`/api/videos/${videoId}/render`, {
     method: 'POST',
     body: {
       captionStyle,
-      options: renderOptions || {},
+      options: renderOptions,
     },
     ...requestOptions,
   });
@@ -513,68 +471,6 @@ export async function downloadRenderedVideo(
 }
 
 /**
- * Check API health status
- */
-export async function checkApiHealth(
-  options: RequestOptions = {}
-): Promise<ApiResponse<HealthResponse>> {
-  return makeRequest('/api/health', options);
-}
-
-/**
- * Simple health check (returns boolean)
- */
-export async function isApiHealthy(options: RequestOptions = {}): Promise<boolean> {
-  try {
-    const response = await checkApiHealth({ timeout: 5000, ...options });
-    return response.success && response.data?.status === 'healthy';
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Get user information (if authenticated)
- */
-export async function getUser(
-  userId?: string,
-  options: RequestOptions = {}
-): Promise<ApiResponse<any>> {
-  const url = userId ? `/api/users/${userId}` : '/api/users/me';
-  return makeRequest(url, options);
-}
-
-/**
- * Update user information
- */
-export async function updateUser(
-  userId: string,
-  userData: any,
-  options: RequestOptions = {}
-): Promise<ApiResponse<any>> {
-  return makeRequest(`/api/users/${userId}`, {
-    method: 'PUT',
-    body: userData,
-    ...options,
-  });
-}
-
-/**
- * Get storage usage statistics
- */
-export async function getStorageUsage(
-  userId?: string,
-  options: RequestOptions = {}
-): Promise<ApiResponse<{ used: number; quota: number; percentage: number }>> {
-  const url = userId ? `/api/users/${userId}/storage` : '/api/users/me/storage';
-  return makeRequest(url, options);
-}
-
-// ===================================
-// BATCH OPERATIONS
-// ===================================
-
-/**
  * Delete multiple videos
  */
 export async function deleteMultipleVideos(
@@ -588,49 +484,4 @@ export async function deleteMultipleVideos(
   });
 }
 
-/**
- * Generate captions for multiple videos
- */
-export async function generateBatchCaptions(
-  videoIds: string[],
-  options?: CaptionGenerateOptions,
-  requestOptions: RequestOptions = {}
-): Promise<ApiResponse<{ processing: string[]; failed: string[]; total: number }>> {
-  return makeRequest('/api/captions/batch-generate', {
-    method: 'POST',
-    body: {
-      videoIds,
-      options: options || {},
-    },
-    ...requestOptions,
-  });
-}
-
-// ===================================
-// UTILITY EXPORTS
-// ===================================
-
 export const API_BASE_URL = API_CONFIG.BASE_URL;
-export const DEFAULT_TIMEOUT = API_CONFIG.DEFAULT_TIMEOUT;
-export const MAX_RETRIES = API_CONFIG.MAX_RETRIES;
-
-// Export all API functions
-export default {
-  uploadVideo,
-  getVideos,
-  getVideoDetails,
-  deleteVideo,
-  getCaptions,
-  saveCaptions,
-  generateCaptions,
-  requestRender,
-  getRenderStatus,
-  downloadRenderedVideo,
-  checkApiHealth,
-  isApiHealthy,
-  getUser,
-  updateUser,
-  getStorageUsage,
-  deleteMultipleVideos,
-  generateBatchCaptions,
-};

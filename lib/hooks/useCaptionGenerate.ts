@@ -134,33 +134,6 @@ export function useCaptionGenerate(
     }
   }, []);
 
-  /**
-   * Simulate caption generation progress (replace with actual polling)
-   */
-  const simulateProgress = useCallback((onUpdate: ProgressCallback) => {
-    let currentProgress = 0;
-    const maxProgress = 100;
-    const increment = 5; // Progress increment percentage
-
-    const progressInterval = setInterval(() => {
-      currentProgress = Math.min(currentProgress + increment, maxProgress);
-
-      // Simulate different stages
-      let status = 'Processing audio...';
-      if (currentProgress > 25) status = 'Transcribing speech...';
-      if (currentProgress > 50) status = 'Optimizing timing...';
-      if (currentProgress > 75) status = 'Finalizing captions...';
-      if (currentProgress >= maxProgress) status = 'Complete';
-
-      onUpdate(currentProgress, status, Math.floor(currentProgress / 10), 10);
-
-      if (currentProgress >= maxProgress) {
-        clearInterval(progressInterval);
-      }
-    }, 500);
-
-    return progressInterval;
-  }, []);
 
   /**
    * Handle successful caption generation
@@ -213,20 +186,15 @@ export function useCaptionGenerate(
     abortControllerRef.current = new AbortController();
 
     try {
-      // Start progress simulation
-      const progressInterval = simulateProgress((progressValue, status, processed, total) => {
-        setProgress(progressValue);
-        onProgressRef.current?.(progressValue, status, processed, total);
-      });
+      // Set initial progress
+      setProgress(0);
+      onProgressRef.current?.(0, 'Starting caption generation...', 0, 0);
 
       // Generate captions
       const response = await generateCaptions(videoId, options, {
         signal: abortControllerRef.current?.signal,
         timeout: 300000, // 5 minutes for caption generation
       });
-
-      // Clear progress simulation
-      clearInterval(progressInterval);
 
       if (response.success && response.data) {
         const generatedCaptions = response.data.captions || [];
@@ -248,7 +216,7 @@ export function useCaptionGenerate(
       setIsLoading(false);
       abortControllerRef.current = null;
     }
-  }, [videoId, simulateProgress, handleGenerationComplete, handleGenerationError]);
+  }, [videoId, handleGenerationComplete, handleGenerationError]);
 
   /**
    * Reset the hook state

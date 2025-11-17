@@ -169,39 +169,6 @@ export function useRender(
     }
   }, []);
 
-  /**
-   * Simulate render progress (replace with actual polling)
-   */
-  const simulateRenderProgress = useCallback((onUpdate: ProgressCallback) => {
-    const stages = [
-      { progress: 0, status: 'Initializing render engine...', duration: 1000 },
-      { progress: 10, status: 'Loading video file...', duration: 1500 },
-      { progress: 25, status: 'Processing captions...', duration: 2000 },
-      { progress: 40, status: 'Generating video frames...', duration: 3000 },
-      { progress: 60, status: 'Applying caption overlays...', duration: 2000 },
-      { progress: 80, status: 'Encoding final video...', duration: 2500 },
-      { progress: 95, status: 'Finalizing output...', duration: 1500 },
-      { progress: 100, status: 'Render completed', duration: 500 },
-    ];
-
-    let currentIndex = 0;
-
-    const processStage = () => {
-      if (currentIndex >= stages.length) return;
-
-      const stage = stages[currentIndex];
-      onUpdate(stage.progress, stage.status, Math.floor((100 - stage.progress) / 10), stage.status);
-
-      currentIndex++;
-
-      if (currentIndex < stages.length) {
-        const nextStage = stages[currentIndex];
-        setTimeout(processStage, nextStage.duration);
-      }
-    };
-
-    setTimeout(processStage, stages[0].duration);
-  }, []);
 
   /**
    * Handle render completion
@@ -317,14 +284,6 @@ export function useRender(
     try {
       setIsLoading(true);
 
-      // Start progress simulation
-      simulateRenderProgress((progressValue, status, estimatedTime, stage) => {
-        setProgress(progressValue);
-        setEstimatedTimeRemaining(estimatedTime);
-        setCurrentStage(stage);
-        onProgressRef.current?.(progressValue, status, estimatedTime, stage);
-      });
-
       // Request render
       const response = await requestRender(videoId, captionStyleRef.current, options, {
         signal: abortControllerRef.current?.signal,
@@ -334,6 +293,7 @@ export function useRender(
       if (response.success && response.data) {
         setRenderId(response.data.renderId);
         setStatus('rendering');
+        // Start polling immediately for real-time updates
         startPolling();
       } else {
         const errorMessage = response.error || 'Failed to start render';
@@ -352,7 +312,7 @@ export function useRender(
       setIsLoading(false);
       abortControllerRef.current = null;
     }
-  }, [videoId, simulateRenderProgress, handleRenderError, startPolling]);
+  }, [videoId, handleRenderError, startPolling]);
 
   /**
    * Reset the hook state

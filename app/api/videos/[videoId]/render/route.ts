@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { createId } from '@paralleldrive/cuid2'
+import { renderVideoWithCaptions, validateRenderOptions, type RenderJob } from '@/lib/services/remotion-service'
 
 // Types for render management
 export interface CreateRenderRequest {
@@ -102,6 +103,50 @@ export async function POST(
       )
     }
 
+    // Fetch captions for the video
+    const captions = await prisma.caption.findMany({
+      where: {
+        videoId
+      },
+      orderBy: {
+        startTime: 'asc'
+      }
+    })
+
+    if (captions.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Video has no captions. Generate captions first.' },
+        { status: 400 }
+      )
+    }
+
+    // Get video file path
+    let videoPath = video.filePath
+    if (videoPath && !videoPath.startsWith('/')) {
+      if (videoPath.startsWith('public/')) {
+        videoPath = '/' + videoPath
+      } else {
+        videoPath = '/public/' + videoPath
+      }
+    }
+
+    // Validate render options
+    const validation = validateRenderOptions({
+      videoPath,
+      captionStyle: body.captionStyle
+    })
+
+    if (!validation.valid) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Invalid render options',
+          details: validation.errors
+        },
+        { status: 400 }
+      )
+    }
+
     // Create render record
     const render = await prisma.render.create({
       data: {
@@ -114,8 +159,46 @@ export async function POST(
 
     console.log(`Created render job: ${render.id} for video: ${videoId} with style: ${body.captionStyle}`)
 
-    // TODO: In the future, this would trigger a Remotion rendering job
-    // For now, we just store the pending request in the database
+    // Start actual Remotion rendering
+    try {
+      const renderJob: RenderJob = await renderVideoWithCaptions(
+        videoId,
+        videoPath!,
+        captions,
+        body.captionStyle
+      )
+
+      // Update render record with job info
+      await prisma.render.update({
+        where: { id: render.id },
+        data: {
+          status: 'rendering',
+          outputPath: renderJob.outputPath
+        }
+      })
+
+      console.log(`Started Remotion rendering job: ${renderJob.id}`)
+
+    } catch (renderError) {
+      console.error('Failed to start Remotion rendering:', renderError)
+
+      // Update render record to failed status
+      await prisma.render.update({
+        where: { id: render.id },
+        data: {
+          status: 'failed'
+        }
+      })
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Failed to start video rendering',
+          details: process.env.NODE_ENV === 'development' ? renderError : undefined
+        },
+        { status: 500 }
+      )
+    }
 
     // Format response
     const response: CreateRenderResponse = {

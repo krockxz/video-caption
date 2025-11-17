@@ -19,15 +19,13 @@ import {
   Plus,
   Trash2
 } from "lucide-react";
+import { useVideoDetails, useCaptionGenerate } from "@/lib/hooks";
+import { saveCaptions } from "@/lib/api-client";
+import { useAppContext } from "@/lib/context/AppContext";
 
 export interface CaptionManagerSectionProps {
   videoId: string;
-  captions: Caption[];
   onCaptionsUpdate?: (captions: Caption[]) => void;
-  isLoading?: boolean;
-  isGenerating?: boolean;
-  onGenerateClick?: () => void;
-  onSaveClick?: (captions: Caption[]) => void;
 }
 
 export interface ExtendedCaption extends Caption {
@@ -36,37 +34,84 @@ export interface ExtendedCaption extends Caption {
 
 export function CaptionManagerSection({
   videoId,
-  captions,
-  onCaptionsUpdate,
-  isLoading = false,
-  isGenerating = false,
-  onGenerateClick,
-  onSaveClick
+  onCaptionsUpdate
 }: CaptionManagerSectionProps) {
+  const { showNotification } = useAppContext();
+  
+  // Fetch captions using hook
+  const {
+    captions: fetchedCaptions,
+    isLoading: isLoadingCaptions,
+    refetchCaptions
+  } = useVideoDetails(videoId || '', undefined, false);
+
+  // Caption generation hook
+  const {
+    generateCaptions: startGenerateCaptions,
+    isLoading: isGenerating,
+    progress: generationProgress,
+    error: generationError
+  } = useCaptionGenerate(
+    videoId || '',
+    true, // auto-save
+    2000, // polling interval
+    undefined, // onProgress
+    async (captions) => {
+      showNotification('success', `Generated ${captions.length} captions successfully!`);
+      await refetchCaptions();
+      onCaptionsUpdate?.(captions);
+    },
+    (error) => {
+      showNotification('error', `Caption generation failed: ${error}`);
+    }
+  );
+
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editedCaption, setEditedCaption] = useState<ExtendedCaption | null>(null);
-  const [localCaptions, setLocalCaptions] = useState<ExtendedCaption[]>(
-    captions.map(cap => ({ ...cap, hasChanges: false }))
-  );
+  const [localCaptions, setLocalCaptions] = useState<ExtendedCaption[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Update local captions when props change
+  // Update local captions when fetched captions change
   useEffect(() => {
-    setLocalCaptions(captions.map(cap => ({ ...cap, hasChanges: false })));
-    setHasUnsavedChanges(false);
-  }, [captions]);
+    if (fetchedCaptions) {
+      setLocalCaptions(fetchedCaptions.map(cap => ({ ...cap, hasChanges: false })));
+      setHasUnsavedChanges(false);
+    }
+  }, [fetchedCaptions]);
 
-  const handleGenerateCaptions = useCallback(() => {
-    onGenerateClick?.();
-  }, [onGenerateClick]);
+  const handleGenerateCaptions = useCallback(async () => {
+    if (!videoId) return;
+    showNotification('info', 'Starting caption generation...');
+    await startGenerateCaptions();
+  }, [videoId, startGenerateCaptions, showNotification]);
 
-  const handleSaveChanges = useCallback(() => {
+  const handleSaveChanges = useCallback(async () => {
+    if (!videoId || isSaving) return;
+    
     const captionsToSave = localCaptions.map(({ hasChanges, ...caption }) => caption);
-    onSaveClick?.(captionsToSave);
-    setHasUnsavedChanges(false);
-    setLocalCaptions(captionsToSave.map(cap => ({ ...cap, hasChanges: false })));
-  }, [localCaptions, onSaveClick]);
+    
+    setIsSaving(true);
+    try {
+      const response = await saveCaptions(videoId, captionsToSave);
+      
+      if (response.success) {
+        showNotification('success', 'Captions saved successfully!');
+        setHasUnsavedChanges(false);
+        setLocalCaptions(captionsToSave.map(cap => ({ ...cap, hasChanges: false })));
+        await refetchCaptions();
+        onCaptionsUpdate?.(captionsToSave);
+      } else {
+        showNotification('error', response.error || 'Failed to save captions');
+      }
+    } catch (error) {
+      showNotification('error', 'Failed to save captions');
+      console.error('Save error:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [videoId, localCaptions, isSaving, refetchCaptions, onCaptionsUpdate, showNotification]);
 
   const handleCaptionSelect = useCallback((captionId: string) => {
     const caption = localCaptions.find(cap => cap.id === captionId);
@@ -106,7 +151,7 @@ export function CaptionManagerSection({
   const handleCancelEdit = useCallback(() => {
     // Revert changes
     const revertedCaptions = localCaptions.map(cap => {
-      const original = captions.find(orig => orig.id === cap.id);
+      const original = fetchedCaptions?.find(orig => orig.id === cap.id);
       return original ? { ...original, hasChanges: false } : cap;
     });
     setLocalCaptions(revertedCaptions);
@@ -114,16 +159,15 @@ export function CaptionManagerSection({
 
     setIsEditDialogOpen(false);
     setEditedCaption(null);
-  }, [localCaptions, captions]);
+  }, [localCaptions, fetchedCaptions]);
 
   const handleDeleteCaption = useCallback((captionId: string) => {
     if (window.confirm('Are you sure you want to delete this caption?')) {
       const updatedCaptions = localCaptions.filter(cap => cap.id !== captionId);
       setLocalCaptions(updatedCaptions);
       setHasUnsavedChanges(true);
-      onCaptionsUpdate?.(updatedCaptions);
     }
-  }, [localCaptions, onCaptionsUpdate]);
+  }, [localCaptions]);
 
   const handleAddCaption = useCallback(() => {
     const newCaption: ExtendedCaption = {
@@ -141,8 +185,7 @@ export function CaptionManagerSection({
     const updatedCaptions = [...localCaptions, newCaption].sort((a, b) => a.startTime - b.startTime);
     setLocalCaptions(updatedCaptions);
     setHasUnsavedChanges(true);
-    onCaptionsUpdate?.(updatedCaptions);
-  }, [localCaptions, videoId, onCaptionsUpdate]);
+  }, [localCaptions, videoId]);
 
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -157,6 +200,7 @@ export function CaptionManagerSection({
 
   const isEmpty = localCaptions.length === 0;
   const hasChanges = hasUnsavedChanges;
+  const isLoading = isLoadingCaptions;
 
   return (
     <Card className="w-full">
@@ -196,10 +240,15 @@ export function CaptionManagerSection({
 
                 <Button
                   onClick={handleSaveChanges}
-                  disabled={!hasChanges || isGenerating}
+                  disabled={!hasChanges || isGenerating || isSaving}
                   variant={hasChanges ? "default" : "outline"}
                 >
-                  {hasChanges ? (
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : hasChanges ? (
                     <>
                       <Save className="h-4 w-4 mr-2" />
                       Save Changes
@@ -224,8 +273,11 @@ export function CaptionManagerSection({
             <div className="text-center space-y-3">
               <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
               <p className="text-muted-foreground">
-                {isGenerating ? 'Generating captions...' : 'Loading captions...'}
+                {isGenerating ? `Generating captions... ${generationProgress}%` : 'Loading captions...'}
               </p>
+              {generationError && (
+                <p className="text-sm text-red-600">{generationError}</p>
+              )}
             </div>
           </div>
         )}
