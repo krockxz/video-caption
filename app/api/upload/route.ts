@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
         uploadPath: video.filePath,
         title: video.title,
         status: video.status,
-        uploadedAt: video.uploadedAt
+        uploadedAt: video.uploadedAt.toISOString()
       }
     }, { status: 201 })
 

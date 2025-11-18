@@ -7,7 +7,7 @@ export interface VideoResponse {
   title: string
   fileName: string
   duration: number | null
-  uploadedAt: Date
+  uploadedAt: string
   status: string
 }
 
@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
           title: video.title,
           fileName: video.fileName,
           duration: video.duration,
-          uploadedAt: video.uploadedAt,
+          uploadedAt: video.uploadedAt.toISOString(),
           status: video.status
         })),
         pagination: {

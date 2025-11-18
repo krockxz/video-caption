@@ -18,7 +18,7 @@ export interface RenderResponse {
   captionStyle: string
   status: string
   outputPath: string | null
-  createdAt: Date
+  createdAt: string
 }
 
 export interface SingleVideoResponse {
@@ -30,7 +30,7 @@ export interface SingleVideoResponse {
     fileName: string
     filePath: string
     duration: number | null
-    uploadedAt: Date
+    uploadedAt: string
     status: string
     captions: CaptionResponse[]
     renders: RenderResponse[]
@@ -108,7 +108,7 @@ export async function GET(
         fileName: video.fileName,
         filePath: video.filePath,
         duration: video.duration,
-        uploadedAt: video.uploadedAt,
+        uploadedAt: video.uploadedAt.toISOString(),
         status: video.status,
         captions: video.captions.map(caption => ({
           id: caption.id,
@@ -123,7 +123,7 @@ export async function GET(
           captionStyle: render.captionStyle,
           status: render.status,
           outputPath: render.outputPath,
-          createdAt: render.createdAt
+          createdAt: render.createdAt.toISOString()
         }))
       }
     }

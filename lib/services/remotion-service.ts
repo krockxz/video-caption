@@ -6,11 +6,10 @@
  */
 
 import { renderMedia } from '@remotion/renderer'
-import { bundle } from '@remotion/bundler'
 import { join } from 'path'
 import { createId } from '@paralleldrive/cuid2'
-import type { Caption } from '../types/api'
-import { UPLOAD_DIR } from '../config'
+import type { Caption } from '@/lib/types/api'
+import { UPLOAD_DIR } from '@/lib/config'
 
 // Types for rendering
 export interface RenderOptions {
@@ -57,7 +56,9 @@ const activeRenderJobs = new Map<string, RenderJob>()
  * Create output directory for rendered videos
  */
 function ensureOutputDir(videoId: string): string {
-  const outputDir = join(process.cwd(), UPLOAD_DIR, videoId, 'renders')
+  // UPLOAD_DIR is already '/public/uploads', so we need to handle it correctly
+  const uploadDir = UPLOAD_DIR.startsWith('/') ? UPLOAD_DIR.slice(1) : UPLOAD_DIR
+  const outputDir = join(process.cwd(), uploadDir, videoId, 'renders')
   const fs = require('fs')
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true })
@@ -160,51 +161,59 @@ async function renderVideoAsync(
     const durationInSeconds = Math.max(...options.captions.map(c => c.endTime), 10)
     const durationInFrames = Math.ceil(durationInSeconds * options.fps)
 
-    // Bundle the composition
-    const bundled = await bundle({
-      entryPoint: join(process.cwd(), 'remotion/compositions/CaptionedVideo.tsx'),
-      onProgress: (progress) => {
-        console.log(`Bundling progress: ${Math.round(progress * 100)}%`)
-      }
-    })
-
     console.log(`Starting video render to: ${options.outputPath}`)
 
-    // Render the video
-    await renderMedia({
-      composition: {
-        id: 'CaptionedVideo',
-        width: options.width,
-        height: options.height,
-        fps: options.fps,
-        durationInFrames,
-        props: compositionProps,
-        defaultProps: compositionProps,
-        defaultCodec: 'h264',
-        defaultOutName: 'output.mp4',
-        defaultVideoImageFormat: 'jpeg',
-        defaultPixelFormat: 'yuv420p',
-        defaultProResProfile: '4444xq'
-      },
-      serveUrl: bundled,
-      codec: options.codec,
-      outputLocation: options.outputPath,
-      inputProps: compositionProps,
-      onProgress: ({ progress }) => {
-        renderJob.progress = Math.round(progress * 100)
-        console.log(`Render progress for ${renderJob.id}: ${renderJob.progress}%`)
-      },
-      imageFormat: 'jpeg',
-      quality: options.quality / 100, // Convert to 0-1 range
-      verbose: true
-    })
+    // Dynamically import bundler to avoid build-time issues
+    try {
+      const { bundle } = await import('@remotion/bundler')
 
-    // Update status to completed
-    renderJob.status = 'completed'
-    renderJob.completedAt = new Date()
-    renderJob.progress = 100
+      const bundled = await bundle({
+        entryPoint: join(process.cwd(), 'remotion/compositions/CaptionedVideo.tsx'),
+        onProgress: (progress) => {
+          console.log(`Bundling progress: ${Math.round(progress * 100)}%`)
+        }
+      })
 
-    console.log(`Completed render job: ${renderJob.id}. Output: ${options.outputPath}`)
+      // Render the video
+      await renderMedia({
+        composition: {
+          id: 'CaptionedVideo',
+          width: options.width,
+          height: options.height,
+          fps: options.fps,
+          durationInFrames,
+          props: compositionProps,
+          defaultProps: compositionProps,
+          defaultCodec: 'h264',
+          defaultOutName: 'output.mp4',
+          defaultVideoImageFormat: 'jpeg',
+          defaultPixelFormat: 'yuv420p',
+          defaultProResProfile: '4444-xq'
+        },
+        serveUrl: bundled,
+        codec: options.codec,
+        outputLocation: options.outputPath,
+        inputProps: compositionProps,
+        onProgress: ({ progress }) => {
+          renderJob.progress = Math.round(progress * 100)
+          console.log(`Render progress for ${renderJob.id}: ${renderJob.progress}%`)
+        },
+        imageFormat: 'jpeg',
+        verbose: true
+      })
+
+      // Update status to completed
+      renderJob.status = 'completed'
+      renderJob.completedAt = new Date()
+      renderJob.progress = 100
+
+      console.log(`Completed render job: ${renderJob.id}. Output: ${options.outputPath}`)
+
+    } catch (bundlerError) {
+      // If bundler import fails, provide a helpful error
+      console.error('Bundler import failed:', bundlerError)
+      throw new Error('Video rendering requires Remotion bundler. Please ensure @remotion/bundler is properly installed.')
+    }
 
   } catch (error) {
     console.error(`Render job ${renderJob.id} failed:`, error)

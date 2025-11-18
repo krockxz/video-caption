@@ -75,9 +75,15 @@ export async function POST(
     }
 
     // Validate OpenAI API key
-    if (!OPENAI_API_KEY) {
+    if (!OPENAI_API_KEY ||
+        OPENAI_API_KEY === 'REPLACE_WITH_NEW_VALID_API_KEY' ||
+        OPENAI_API_KEY.includes('your_new_openai_api_key_here') ||
+        OPENAI_API_KEY.includes('REPLACE_WITH')) {
       return NextResponse.json(
-        { success: false, error: 'OpenAI API key not configured' },
+        {
+          success: false,
+          error: 'OpenAI API key not configured. Please add a valid API key to .env.local file. See instructions in the file.'
+        },
         { status: 500 }
       )
     }
